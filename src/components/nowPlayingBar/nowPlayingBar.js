@@ -41,7 +41,7 @@ let toggleRepeatButtonIcon;
 let showPlaybackRateMenuButton;
 let lyricButton;
 
-let lastUpdateTime = 0;
+let lastRenderedSecond = -1;
 let lastPlayerState = {};
 let isEnabled;
 let currentRuntimeTicks = 0;
@@ -681,16 +681,20 @@ function onTimeUpdate() {
         return;
     }
 
-    // Try to avoid hammering the document with changes
-    const now = new Date().getTime();
-    if ((now - lastUpdateTime) < 700) {
+    const player = this;
+    const positionMs = playbackManager.currentTime(player);
+
+    // Only touch the document when the displayed second actually changes. Throttling on a fixed
+    // wall clock interval instead makes the updates beat against the second boundary, so the
+    // time stalls or skips values depending on the playback rate.
+    const positionSeconds = Math.floor(positionMs / 1000);
+    if (positionSeconds === lastRenderedSecond) {
         return;
     }
-    lastUpdateTime = now;
+    lastRenderedSecond = positionSeconds;
 
-    const player = this;
     currentRuntimeTicks = playbackManager.duration(player);
-    updateTimeDisplay(playbackManager.currentTime(player) * 10000, currentRuntimeTicks, playbackManager.getBufferedRanges(player));
+    updateTimeDisplay(positionMs * 10000, currentRuntimeTicks, playbackManager.getBufferedRanges(player));
 }
 
 function releaseCurrentPlayer() {
