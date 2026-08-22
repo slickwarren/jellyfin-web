@@ -1,0 +1,39 @@
+name: Sync fork with upstream 🔄
+
+on:
+  schedule:
+    # Mondays at 06:00 UTC
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-fork
+  cancel-in-progress: false
+
+jobs:
+  rebase:
+    name: Rebase master onto upstream/master
+    runs-on: ubuntu-latest
+    # Never run this in the upstream repo, only in forks
+    if: ${{ github.repository != 'jellyfin/jellyfin-web' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ secrets.FORK_SYNC_TOKEN }}
+
+      - name: Rebase onto upstream/master
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/jellyfin/jellyfin-web.git
+          git fetch --no-tags upstream master
+          git rebase upstream/master
+
+      - name: Push to fork
+        run: git push --force-with-lease origin master
