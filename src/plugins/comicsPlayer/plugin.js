@@ -374,12 +374,13 @@ class ArchiveSource {
             const index = name.lastIndexOf('.');
             return index !== -1 && IMAGE_FORMATS.includes(name.slice(index + 1).toLowerCase());
         });
+        // Sort by full path within the archive using natural numeric ordering,
+        // so pages in chapter subfolders (e.g. "001/2.jpg" before "001/10.jpg")
+        // stay in reading order instead of interleaving across folders.
         files.sort((a, b) => {
-            if (a.file.name < b.file.name) {
-                return -1;
-            } else {
-                return 1;
-            }
+            const aPath = `${a.path}${a.file.name}`;
+            const bPath = `${b.path}${b.file.name}`;
+            return aPath.localeCompare(bPath, undefined, { numeric: true });
         });
 
         for (const file of files) {
