@@ -24,6 +24,7 @@ Two facts about that box shape everything here:
 ~/.local/node/                          Node 24 (userland install, no root)
 ~/src/jellyfin-web/                     git checkout + node_modules (build workspace)
 ~/bin/deploy-jellyfin-web.sh            the deploy script
+~/bin/auto-deploy-jellyfin-web.sh       the weekly wrapper run by jellyfin-web-deploy.timer
 ~/bin/jellyfin-webdir.conf              the systemd drop-in, to be installed as root
 ~/bin/jellyfin-webdir.env               the webdir value, installed to /etc/default/jellyfin-webdir
 ~/bin/check-jellyfin-dirs.sh            permission preflight (run after any jellyfin upgrade)
@@ -47,8 +48,48 @@ refuses to publish a build that fails its sanity checks, installs it as a new re
 `current` symlink atomically, and prunes to the newest 3 releases (never the active one). It uses
 `sudo -n` for the restart, so it reports rather than blocking if a password is needed.
 
-To make weekly runs fully unattended, add a `/etc/sudoers.d/jellyfin-web` rule limited to
-`systemctl restart jellyfin`, then a cron entry after the Monday 06:00 UTC fork sync.
+## Weekly unattended deploy
+
+`jellyfin-web-deploy.timer` runs `jellyfin-web-deploy.service` on Mondays at 09:30, 10:30 and
+11:30 server time (America/Los_Angeles), when nobody is using the server. The fork sync is
+scheduled for Monday 06:00 UTC, but GitHub starts scheduled workflows hours late (04:40–08:56
+Pacific so far), so an early-morning run would always ship the previous week's sync.
+
+The service runs `~/bin/auto-deploy-jellyfin-web.sh` as `slickwarren`. The wrapper fetches the
+fork and:
+
+- stops if `origin/master` is already the deployed release, so the later runs and Jellyfin's
+  restart happen at most once a week;
+- skips the week, and logs why, if the fork's major version no longer matches the server's
+  (see "Version matching" below);
+- otherwise runs `~/bin/deploy-jellyfin-web.sh`.
+
+The production build peaks at about 6 GB across 19 processes (measured 2026-11-23). On
+2026-10-30 a deploy ran the 15 GB box out of memory and the kernel killed qBittorrent, so the
+service caps the build (`MemoryHigh=7G`, `MemoryMax=8G`) and sets `OOMScoreAdjust=1000`, making
+the build the first thing killed if memory still runs out. A killed build just leaves the current
+release in place.
+
+The restart needs `/etc/sudoers.d/jellyfin-web`, which allows exactly
+`systemctl restart jellyfin.service` without a password, and nothing else.
+
+Install, from the checkout:
+
+```bash
+install -m 755 scripts/auto-deploy-jellyfin-web.sh scripts/deploy-jellyfin-web.sh ~/bin/
+sudo visudo -cf scripts/jellyfin-web.sudoers && sudo install -m 440 -o root -g root scripts/jellyfin-web.sudoers /etc/sudoers.d/jellyfin-web
+sudo install -m 644 scripts/jellyfin-web-deploy.service scripts/jellyfin-web-deploy.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now jellyfin-web-deploy.timer
+```
+
+Then:
+
+```bash
+systemctl list-timers jellyfin-web-deploy.timer      # next run
+sudo systemctl start jellyfin-web-deploy.service     # deploy now (restarts Jellyfin)
+cat /var/log/jellyfin-web-deploy.log                 # what each run did
+sudo systemctl disable --now jellyfin-web-deploy.timer   # stop the weekly runs
+```
 
 ## Version matching — the thing that will bite you
 
@@ -105,8 +146,9 @@ fallback and needs no `apt-mark hold`.
   not an override is active. Read the running process's argv instead
   (`tr '\0' '\n' < /proc/$(systemctl show jellyfin -p MainPID --value)/cmdline`), or compare the
   md5 of the served `/web/index.html` against the build on disk. The deploy script does both.
-- **Service worker.** Assets are content-hashed and a service worker is registered, so a hard refresh
-  (or DevTools → Application → Unregister service worker) may be needed once after a deploy.
+- **Service worker.** Upstream removed the service worker in November 2026 ("Remove non-functional
+  service worker"), so builds no longer contain `serviceworker.js` and the app unregisters any old
+  one on load. Assets are content-hashed, so a hard refresh may still be needed once after a deploy.
 
 ## Verifying a deploy
 

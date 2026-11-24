@@ -1,0 +1,12 @@
+[Unit]
+Description=Deploy the jellyfin-web fork on Monday mornings
+
+[Timer]
+# Server-local time (America/Los_Angeles). GitHub's Monday fork sync starts hours after its
+# 06:00 UTC schedule (04:40-08:56 local so far), so try after that; the later runs only do a
+# `git fetch` once the week's build is deployed.
+OnCalendar=Mon *-*-* 09..11:30:00
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

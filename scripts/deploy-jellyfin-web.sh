@@ -67,7 +67,7 @@ build() {
 verify_build() {
     cd "$SRC_DIR"
     local f
-    for f in index.html main.jellyfin.bundle.js serviceworker.js config.json; do
+    for f in index.html main.jellyfin.bundle.js config.json; do
         [ -s "dist/$f" ] || die "build looks broken: dist/$f is missing or empty"
     done
     local count
@@ -154,8 +154,10 @@ verify_serving() {
     want="$(md5sum "$CURRENT_LINK/index.html" 2>/dev/null | cut -d' ' -f1)"
     [ -n "$want" ] || return 0
     for i in $(seq 1 15); do
+        # Jellyfin refuses connections for a few seconds after the restart; that must
+        # count as "not yet", not end the script (set -e with pipefail)
         got="$(curl -sf --max-time 5 "http://localhost:$port/web/index.html" 2>/dev/null \
-            | md5sum | cut -d' ' -f1)"
+            | md5sum | cut -d' ' -f1 || true)"
         [ "$got" = "$want" ] && { log "Verified: the server is serving this build"; return 0; }
         sleep 2
     done
@@ -187,7 +189,7 @@ main() {
     install_release
     restart_server
     prune_releases
-    log "Done. Hard-refresh the browser (or unregister the service worker) to pick up changes."
+    log "Done. Hard-refresh the browser to pick up changes."
 }
 
 main "$@"

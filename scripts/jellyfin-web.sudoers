@@ -1,0 +1,3 @@
+# Lets the unattended jellyfin-web deploy restart Jellyfin, and nothing else.
+# deploy-jellyfin-web.sh runs exactly this command with `sudo -n`.
+slickwarren ALL=(root) NOPASSWD: /usr/bin/systemctl restart jellyfin.service

@@ -1,0 +1,21 @@
+[Unit]
+Description=Build and deploy the jellyfin-web fork
+After=network-online.target jellyfin.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=slickwarren
+ExecStart=/home/slickwarren/bin/auto-deploy-jellyfin-web.sh
+# The build peaks at about 6 GB across 19 processes (measured 2026-11-23) on a 15 GB machine
+# that also runs qBittorrent and Jellyfin. On Oct 30 a deploy ran the machine out of memory and
+# the kernel killed qBittorrent, so cap the build, and make it the first thing killed if memory
+# still runs out: a failed deploy just leaves the current build in place.
+MemoryHigh=7G
+MemoryMax=8G
+OOMScoreAdjust=1000
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=1h
+StandardOutput=append:/var/log/jellyfin-web-deploy.log
+StandardError=append:/var/log/jellyfin-web-deploy.log
