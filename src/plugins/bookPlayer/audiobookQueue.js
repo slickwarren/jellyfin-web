@@ -5,7 +5,16 @@ import { getLibraryApi } from '@jellyfin/sdk/lib/utils/api/library-api';
 
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 
-const QUEUE_NAME = 'audiobook queue';
+export const AudiobookQueue = {
+    Overnight: 'overnight',
+    HighQuality: 'highQuality'
+};
+
+const QUEUE_NAMES = {
+    [AudiobookQueue.Overnight]: 'audiobook queue (overnight)',
+    [AudiobookQueue.HighQuality]: 'audiobook queue (high quality)'
+};
+const SEARCH_TERM = 'audiobook queue';
 
 const sameName = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
 
@@ -22,7 +31,7 @@ export async function getAudiobookStatus(item) {
             userId,
             includeItemTypes: [BaseItemKind.BoxSet],
             recursive: true,
-            searchTerm: QUEUE_NAME,
+            searchTerm: SEARCH_TERM,
             fields: [ItemFields.Overview]
         }),
         library.getItems({
@@ -34,17 +43,21 @@ export async function getAudiobookStatus(item) {
         })
     ]);
 
-    const audiobook = audiobooks.Items?.find(a => sameName(a.Name, item.Name));
-    const queue = collections.Items?.find(c => sameName(c.Name, QUEUE_NAME));
-    if (!queue) return { available: false, audiobook };
+    const queues = {};
+    for (const [kind, name] of Object.entries(QUEUE_NAMES)) {
+        const queue = collections.Items?.find(c => sameName(c.Name, name));
+        if (queue) queues[kind] = { id: queue.Id, status: queue.Overview };
+    }
 
-    const { data: queued } = await library.getItems({ userId, parentId: queue.Id });
+    const memberships = await Promise.all(Object.entries(queues).map(async ([kind, queue]) => {
+        const { data } = await library.getItems({ userId, parentId: queue.id });
+        return data.Items?.some(i => i.Id === item.Id) ? kind : null;
+    }));
+
     return {
-        available: true,
-        queueId: queue.Id,
-        status: queue.Overview,
-        queued: !!queued.Items?.some(i => i.Id === item.Id),
-        audiobook
+        queues,
+        queuedIn: memberships.find(Boolean) ?? null,
+        audiobook: audiobooks.Items?.find(a => sameName(a.Name, item.Name))
     };
 }
 

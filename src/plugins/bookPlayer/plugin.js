@@ -15,7 +15,7 @@ import toast from '../../components/toast/toast';
 import BookToc from './BookToc/BookToc';
 import BookOsd from './BookOsd/BookOsd';
 import { ReadAloud, ReadAloudMode, ReadAloudState } from './readAloud';
-import { getAudiobookStatus, queueAudiobook } from './audiobookQueue';
+import { AudiobookQueue, getAudiobookStatus, queueAudiobook } from './audiobookQueue';
 import globalize, { translateHtml } from '../../lib/globalize';
 import * as userSettings from '../../scripts/settings/userSettings';
 import Events from '../../utils/events.ts';
@@ -473,11 +473,13 @@ export class BookPlayer {
         }
 
         const audiobook = await this.getAudiobookStatus();
+        const queuedStatus = audiobook?.queuedIn ? audiobook.queues[audiobook.queuedIn].status : null;
         if (audiobook?.audiobook) {
             items.push({ id: 'listen', name: globalize.translate('AudiobookListen'), icon: 'headphones' });
-        } else if (audiobook?.queued) {
-            items.push({ id: 'queued', name: globalize.translate('AudiobookQueued'), secondaryText: audiobook.status, icon: 'hourglass_top' });
-        } else if (audiobook?.available) {
+        }
+        if (audiobook?.queuedIn) {
+            items.push({ id: 'queued', name: globalize.translate('AudiobookQueued'), secondaryText: queuedStatus, icon: 'hourglass_top' });
+        } else if (audiobook && Object.keys(audiobook.queues).length) {
             items.push({ id: 'queue', name: globalize.translate('AudiobookCreate'), icon: 'library_add' });
         }
 
@@ -495,9 +497,9 @@ export class BookPlayer {
             this.stop();
             appRouter.showItem(item.Id, item.ServerId ?? this.item.ServerId);
         } else if (id === 'queue') {
-            await this.requestAudiobook(audiobook.queueId);
+            await this.chooseAudiobookQueue(audiobook.queues, anchor);
         } else if (id === 'queued') {
-            toast(audiobook.status || globalize.translate('AudiobookQueued'));
+            toast(queuedStatus || globalize.translate('AudiobookQueued'));
         } else if (Object.values(ReadAloudMode).includes(id)) {
             await this.readAloud?.start(id);
         }
@@ -512,6 +514,21 @@ export class BookPlayer {
             console.warn('[BookPlayer] could not check the audiobook queue', err);
             return null;
         }
+    }
+
+    async chooseAudiobookQueue(queues, anchor) {
+        const items = [
+            { id: AudiobookQueue.Overnight, name: globalize.translate('AudiobookOvernight'), secondaryText: globalize.translate('AudiobookOvernightHelp'), icon: 'bedtime' },
+            { id: AudiobookQueue.HighQuality, name: globalize.translate('AudiobookHighQuality'), secondaryText: globalize.translate('AudiobookHighQualityHelp'), icon: 'auto_awesome' }
+        ].filter(option => queues[option.id]);
+
+        let id;
+        try {
+            id = await actionsheet.show({ items, positionTo: anchor, title: globalize.translate('AudiobookCreate') });
+        } catch {
+            return;
+        }
+        if (queues[id]) await this.requestAudiobook(queues[id].id);
     }
 
     async requestAudiobook(queueId) {
