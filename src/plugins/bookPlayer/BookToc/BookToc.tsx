@@ -3,31 +3,34 @@ import React, { type FC, useCallback, useState } from 'react';
 import './BookToc.scss';
 import IconButton from '../../../elements/emby-button/IconButton';
 import globalize from 'lib/globalize';
-import { Rendition } from 'epubjs';
-import type { NavItem } from 'epubjs/types/navigation';
 import Dialog from '@mui/material/Dialog';
 
+export interface TocItem {
+    label?: string;
+    href?: string;
+    subitems?: TocItem[] | null;
+}
+
 interface BookTocProps {
-    rendition: () => Rendition;
+    toc: TocItem[];
+    onSelect: (href: string) => void;
     onClose: () => void;
 }
 
-const BookToc: FC<BookTocProps> = ({ rendition, onClose }) => {
+const BookToc: FC<BookTocProps> = ({ toc, onSelect, onClose }) => {
     const [active, setActive] = useState(true);
 
     const onClickClose = useCallback(() => setActive(false), []);
 
-    const onClickChapter = useCallback((chapter: NavItem) => (event: React.MouseEvent<HTMLAnchorElement>) => {
+    const onClickChapter = useCallback((chapter: TocItem) => (event: React.MouseEvent<HTMLAnchorElement>) => {
         event.preventDefault();
-
-        // remove parent directory reference from href to fix certain books
-        void rendition().display(chapter.href.startsWith('../') ? chapter.href.slice(3) : chapter.href);
+        if (chapter.href) onSelect(chapter.href);
         setActive(false);
-    }, [rendition]);
+    }, [onSelect]);
 
-    const renderChapter = (chapter: NavItem): React.JSX.Element => {
+    const renderChapter = (chapter: TocItem, index: number): React.JSX.Element => {
         return (
-            <li key={chapter.href}>
+            <li key={`${chapter.href ?? ''}-${index}`}>
                 <a href={chapter.href} onClick={onClickChapter(chapter)}>
                     {chapter.label}
                 </a>
@@ -56,7 +59,7 @@ const BookToc: FC<BookTocProps> = ({ rendition, onClose }) => {
                 <span className='bookTocTitle'>{globalize.translate('TableOfContents')}</span>
             </div>
             <ul className='bookTocList'>
-                {rendition()?.book.navigation.toc.map(renderChapter)}
+                {toc.map(renderChapter)}
             </ul>
         </Dialog>
     );

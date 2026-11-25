@@ -40,3 +40,41 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+.bookReadAloudBar {
+    position: absolute;
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom) + 0.25rem);
+    transform: translateX(-50%) translateZ(0);
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0 0.5rem;
+    border-radius: 2rem;
+    background-color: var(--jf-palette-AppBar-defaultBg);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    pointer-events: auto;
+    transition: bottom 200ms linear;
+}
+
+.bookReadAloudBarRaised {
+    bottom: calc(env(safe-area-inset-bottom) + 5vh + 0.5rem);
+}
+
+.bookReadAloudRate {
+    min-width: 3.2em;
+    padding: 0.4em 0.6em;
+    border: 0;
+    border-radius: 1em;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+@media (orientation: landscape) and (max-width: 60em) {
+    .bookReadAloudBarRaised {
+        bottom: calc(env(safe-area-inset-bottom) + 10vh + 0.5rem);
+    }
+}

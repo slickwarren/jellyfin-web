@@ -18,7 +18,20 @@ interface BookOsdProps {
     onIncreaseFontSize?: () => void;
     onToggleDirection?: () => void;
     onToggleLayout?: () => void;
-    onToggleFullscreen: () => void;
+    onToggleFullscreen?: () => void;
+    readAloudEvents?: EventTarget;
+    initialReadAloudRate?: number;
+    onReadAloud?: (anchor: HTMLElement) => void;
+    onReadAloudToggle?: () => void;
+    onReadAloudStop?: () => void;
+    onReadAloudPrevious?: () => void;
+    onReadAloudNext?: () => void;
+    onReadAloudRate?: (anchor: HTMLElement) => void;
+}
+
+interface ReadAloudChange {
+    state: 'idle' | 'playing' | 'paused';
+    rate: number;
 }
 
 interface ComicsPlayerSettings {
@@ -37,7 +50,15 @@ const BookOsd: FC<BookOsdProps> = ({
     onIncreaseFontSize,
     onToggleDirection,
     onToggleLayout,
-    onToggleFullscreen
+    onToggleFullscreen,
+    readAloudEvents,
+    initialReadAloudRate = 1,
+    onReadAloud,
+    onReadAloudToggle,
+    onReadAloudStop,
+    onReadAloudPrevious,
+    onReadAloudNext,
+    onReadAloudRate
 }) => {
     const settings = userSettings.getComicsPlayerSettings(item.Id!) as ComicsPlayerSettings;
     const timeout = useRef<ReturnType<typeof setTimeout>>();
@@ -46,6 +67,7 @@ const BookOsd: FC<BookOsdProps> = ({
     const [layout, setLayout] = useState(settings.pagesPerView === 2);
     const [fullscreen, setFullscreen] = useState(false);
     const [visible, setVisible] = useState(true);
+    const [readAloud, setReadAloud] = useState<ReadAloudChange>({ state: 'idle', rate: initialReadAloudRate });
 
     const scheduleHide = useCallback(() => {
         clearTimeout(timeout.current);
@@ -70,6 +92,21 @@ const BookOsd: FC<BookOsdProps> = ({
         setLayout(state => !state);
     }, [onToggleLayout]);
 
+    const onClickReadAloud = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+        onReadAloud?.(event.currentTarget);
+    }, [onReadAloud]);
+
+    const onClickReadAloudRate = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+        onReadAloudRate?.(event.currentTarget);
+    }, [onReadAloudRate]);
+
+    useEffect(() => {
+        if (!readAloudEvents) return;
+        const onChange = (event: Event) => setReadAloud((event as CustomEvent<ReadAloudChange>).detail);
+        readAloudEvents.addEventListener('change', onChange);
+        return () => readAloudEvents.removeEventListener('change', onChange);
+    }, [readAloudEvents]);
+
     const onClickFullscreen = useCallback(() => {
         updateFullscreen(!fullscreen);
         onToggleFullscreen?.();
@@ -88,7 +125,7 @@ const BookOsd: FC<BookOsdProps> = ({
             // apply this before the BookOsd check so IconButton clicks will reset the timer
             scheduleHide();
 
-            if ((event.target as Element | null)?.closest?.('.bookOsdRow')) return;
+            if ((event.target as Element | null)?.closest?.('.bookOsdRow, .bookReadAloudBar')) return;
             setVisible(state => !state);
         };
 
@@ -121,6 +158,14 @@ const BookOsd: FC<BookOsdProps> = ({
                         onClick={onOpenTableOfContents}
                         icon='toc'
                         title={globalize.translate('TableOfContents')}
+                    />
+                )}
+
+                {onReadAloud && (
+                    <IconButton
+                        onClick={onClickReadAloud}
+                        icon='record_voice_over'
+                        title={globalize.translate('ReadAloud')}
                     />
                 )}
 
@@ -172,6 +217,39 @@ const BookOsd: FC<BookOsdProps> = ({
                     />
                 )}
             </div>
+
+            {readAloud.state !== 'idle' && (
+                <div className={visible ? 'bookReadAloudBar bookReadAloudBarRaised' : 'bookReadAloudBar'}>
+                    <IconButton
+                        onClick={onReadAloudPrevious}
+                        icon='skip_previous'
+                        title={globalize.translate('ReadAloudPreviousParagraph')}
+                    />
+                    <IconButton
+                        onClick={onReadAloudToggle}
+                        icon={readAloud.state === 'playing' ? 'pause' : 'play_arrow'}
+                        title={globalize.translate(readAloud.state === 'playing' ? 'ButtonPause' : 'Play')}
+                    />
+                    <IconButton
+                        onClick={onReadAloudNext}
+                        icon='skip_next'
+                        title={globalize.translate('ReadAloudNextParagraph')}
+                    />
+                    <button
+                        type='button'
+                        className='bookReadAloudRate'
+                        onClick={onClickReadAloudRate}
+                        title={globalize.translate('PlaybackRate')}
+                    >
+                        {`${readAloud.rate}x`}
+                    </button>
+                    <IconButton
+                        onClick={onReadAloudStop}
+                        icon='stop'
+                        title={globalize.translate('ButtonStop')}
+                    />
+                </div>
+            )}
         </div>
     );
 };
