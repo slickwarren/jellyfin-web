@@ -6,6 +6,7 @@ import { ServerConnections } from 'lib/jellyfin-apiclient';
 import screenSaverManager from 'scripts/screensavermanager';
 
 import actionsheet from '../../components/actionSheet/actionSheet';
+import { appRouter } from '../../components/router/appRouter';
 import loading from '../../components/loading/loading';
 import keyboardnavigation from '../../scripts/keyboardNavigation';
 import dialogHelper from '../../components/dialogHelper/dialogHelper';
@@ -14,6 +15,7 @@ import toast from '../../components/toast/toast';
 import BookToc from './BookToc/BookToc';
 import BookOsd from './BookOsd/BookOsd';
 import { ReadAloud, ReadAloudMode, ReadAloudState } from './readAloud';
+import { getAudiobookStatus, queueAudiobook } from './audiobookQueue';
 import globalize, { translateHtml } from '../../lib/globalize';
 import * as userSettings from '../../scripts/settings/userSettings';
 import Events from '../../utils/events.ts';
@@ -38,6 +40,7 @@ const LOCATION_KEY_PREFIX = 'bookplayer-location-';
 const RESUME_TOLERANCE = 0.02;
 const TAP_ZONE = 0.25;
 const HTML_TYPES = ['application/xhtml+xml', 'text/html'];
+const AUDIOBOOK_STATUS_TIMEOUT = 2000;
 const CSP_META = '<meta http-equiv="Content-Security-Policy" content="script-src \'none\'; object-src \'none\'"/>';
 
 function readStorage(key) {
@@ -469,6 +472,15 @@ export class BookPlayer {
             items.push({ id: 'settings', name: globalize.translate('ReadAloudVoiceSettings'), icon: 'settings_voice' });
         }
 
+        const audiobook = await this.getAudiobookStatus();
+        if (audiobook?.audiobook) {
+            items.push({ id: 'listen', name: globalize.translate('AudiobookListen'), icon: 'headphones' });
+        } else if (audiobook?.queued) {
+            items.push({ id: 'queued', name: globalize.translate('AudiobookQueued'), secondaryText: audiobook.status, icon: 'hourglass_top' });
+        } else if (audiobook?.available) {
+            items.push({ id: 'queue', name: globalize.translate('AudiobookCreate'), icon: 'library_add' });
+        }
+
         let id;
         try {
             id = await actionsheet.show({ items, positionTo: anchor, title: globalize.translate('ReadAloud') });
@@ -478,8 +490,37 @@ export class BookPlayer {
 
         if (id === 'settings') {
             await this.readAloud?.openSettings();
+        } else if (id === 'listen') {
+            const item = audiobook.audiobook;
+            this.stop();
+            appRouter.showItem(item.Id, item.ServerId ?? this.item.ServerId);
+        } else if (id === 'queue') {
+            await this.requestAudiobook(audiobook.queueId);
+        } else if (id === 'queued') {
+            toast(audiobook.status || globalize.translate('AudiobookQueued'));
         } else if (Object.values(ReadAloudMode).includes(id)) {
             await this.readAloud?.start(id);
+        }
+    }
+
+    async getAudiobookStatus() {
+        if (!this.item?.ServerId) return null;
+        const timeout = new Promise(resolve => setTimeout(() => resolve(null), AUDIOBOOK_STATUS_TIMEOUT));
+        try {
+            return await Promise.race([getAudiobookStatus(this.item), timeout]);
+        } catch (err) {
+            console.warn('[BookPlayer] could not check the audiobook queue', err);
+            return null;
+        }
+    }
+
+    async requestAudiobook(queueId) {
+        try {
+            await queueAudiobook(this.item, queueId);
+            toast(globalize.translate('AudiobookQueuedToast'));
+        } catch (err) {
+            console.error('[BookPlayer] could not queue the audiobook', err);
+            toast(globalize.translate('AudiobookQueueFailed'));
         }
     }
 
