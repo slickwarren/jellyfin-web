@@ -39,6 +39,7 @@ export default tseslint.config(
             'node_modules',
             'coverage',
             'dist',
+            'src/lib/foliate-js',
             '.idea',
             '.vscode'
         ]
