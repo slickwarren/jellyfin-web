@@ -1,10 +1,12 @@
 import { PluginType } from 'constants/pluginType';
+import { ServerConnections } from 'lib/jellyfin-apiclient';
 
 import browser from '../../scripts/browser';
 import { appRouter } from '../../components/router/appRouter';
 import loading from '../../components/loading/loading';
 import { setBackdropTransparency, TRANSPARENCY_LEVEL } from '../../components/backdrop/backdrop';
 import Events from '../../utils/events.ts';
+import { getRelayUrl, PlayerState, RelayedYoutubePlayer, shouldUseRelay } from '../../utils/youtubeRelay';
 
 /* globals YT */
 
@@ -13,8 +15,18 @@ const errorCodes = {
     5: 'YoutubePlaybackError',
     100: 'YoutubeNotFound',
     101: 'YoutubeDenied',
-    150: 'YoutubeDenied'
+    150: 'YoutubeDenied',
+    // "Video player configuration error": the embedding page sent no Referer.
+    153: 'YoutubeDenied'
 };
+
+/** How long to wait for the server-hosted relay page to report ready before giving up. */
+const RELAY_READY_TIMEOUT_MS = 20000;
+
+function getServerAddress(item) {
+    const apiClient = (item?.ServerId && ServerConnections.getApiClient(item)) || ServerConnections.currentApiClient();
+    return apiClient.serverAddress();
+}
 
 function zoomIn(elem, iterations) {
     const keyframes = [
@@ -142,25 +154,36 @@ function setCurrentSrc(instance, elem, options) {
     return new Promise(function (resolve, reject) {
         instance._currentSrc = options.url;
         const params = new URLSearchParams(options.url.split('?')[1]);
+        // Apps that load the web client from a local file cannot embed YouTube directly
+        // (error 153), so the player is hosted by a page on the Jellyfin server instead.
+        const useRelay = shouldUseRelay();
+        let relayTimeout;
+
         // 3. This function creates an <iframe> (and YouTube player)
-        //    after the API code downloads.
-        window.onYouTubeIframeAPIReady = function () {
-            instance.currentYoutubePlayer = new YT.Player('player', {
+        //    after the API code downloads, or straight away when the relay hosts the player.
+        const createPlayer = function () {
+            const playerOptions = {
                 height: instance.videoDialog.offsetHeight,
                 width: instance.videoDialog.offsetWidth,
                 videoId: params.get('v'),
                 events: {
-                    'onReady': onPlayerReady,
+                    'onReady': function (event) {
+                        clearTimeout(relayTimeout);
+                        onPlayerReady(event);
+                    },
                     'onStateChange': function (event) {
-                        if (event.data === YT.PlayerState.PLAYING) {
+                        if (event.data === PlayerState.PLAYING) {
                             onPlaying(instance, options, resolve);
-                        } else if (event.data === YT.PlayerState.ENDED) {
+                        } else if (event.data === PlayerState.ENDED) {
                             onEndedInternal(instance);
-                        } else if (event.data === YT.PlayerState.PAUSED) {
+                        } else if (event.data === PlayerState.PAUSED) {
                             Events.trigger(instance, 'pause');
                         }
                     },
-                    'onError': (e) => reject(errorCodes[e.data] || 'ErrorDefault')
+                    'onError': (e) => {
+                        clearTimeout(relayTimeout);
+                        reject(errorCodes[e.data] || 'ErrorDefault');
+                    }
                 },
                 playerVars: {
                     controls: 0,
@@ -171,7 +194,11 @@ function setCurrentSrc(instance, elem, options) {
                     fs: 0,
                     playsinline: 1
                 }
-            });
+            };
+
+            instance.currentYoutubePlayer = useRelay ?
+                new RelayedYoutubePlayer('player', getRelayUrl(getServerAddress(options.item)), playerOptions) :
+                new YT.Player('player', playerOptions);
 
             let resizeListener = instance.resizeListener;
             if (resizeListener) {
@@ -184,6 +211,16 @@ function setCurrentSrc(instance, elem, options) {
             window.removeEventListener('orientationChange', resizeListener);
             window.addEventListener('orientationChange', resizeListener);
         };
+
+        if (useRelay) {
+            // If the relay page never answers (server unreachable), fail rather than spin forever.
+            // playbackManager shows ErrorDefault for an empty rejection.
+            relayTimeout = setTimeout(() => reject(), RELAY_READY_TIMEOUT_MS);
+            createPlayer();
+            return;
+        }
+
+        window.onYouTubeIframeAPIReady = createPlayer;
 
         if (!window.YT) {
             const tag = document.createElement('script');

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <!--
+        Hosts the YouTube trailer player for clients that load the web client from a local
+        file (Tizen, webOS). YouTube refuses embeds whose page sends no Referer (error 153),
+        and a file:// page never sends one. Served from the Jellyfin server, this page does.
+        The parent drives it through postMessage; see src/utils/youtubeRelay.js.
+    -->
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <title>Trailer</title>
+    <style>
+        html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+        #player { width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+    <div id="player"></div>
+    <script>
+        (function () {
+            'use strict';
+
+            var NS = 'jellyfin-youtube-relay';
+            var videoId = new URLSearchParams(window.location.search).get('v');
+            var player = null;
+
+            function send(type, data) {
+                // The parent page is usually file://, whose origin cannot be targeted.
+                window.parent.postMessage({ ns: NS, type: type, data: data }, '*');
+            }
+
+            function sendState() {
+                if (!player || typeof player.getPlayerState !== 'function') {
+                    return;
+                }
+                send('state', {
+                    currentTime: player.getCurrentTime(),
+                    duration: player.getDuration(),
+                    playerState: player.getPlayerState(),
+                    volume: player.getVolume(),
+                    muted: player.isMuted()
+                });
+            }
+
+            window.addEventListener('message', function (e) {
+                var msg = e.data;
+                if (e.source !== window.parent || !msg || msg.ns !== NS || !player) {
+                    return;
+                }
+                switch (msg.cmd) {
+                    case 'play': player.playVideo(); break;
+                    case 'pause': player.pauseVideo(); break;
+                    case 'stop': player.stopVideo(); break;
+                    case 'seek': player.seekTo(msg.arg, true); break;
+                    case 'volume': player.setVolume(msg.arg); break;
+                    case 'mute': if (msg.arg) { player.mute(); } else { player.unMute(); } break;
+                    default: return;
+                }
+                sendState();
+            });
+
+            window.onYouTubeIframeAPIReady = function () {
+                player = new YT.Player('player', {
+                    width: '100%',
+                    height: '100%',
+                    videoId: videoId,
+                    playerVars: {
+                        controls: 0,
+                        enablejsapi: 1,
+                        modestbranding: 1,
+                        rel: 0,
+                        showinfo: 0,
+                        fs: 0,
+                        playsinline: 1
+                    },
+                    events: {
+                        onReady: function () {
+                            sendState();
+                            send('ready');
+                            setInterval(sendState, 250);
+                        },
+                        onStateChange: function (e) {
+                            sendState();
+                            send('stateChange', e.data);
+                        },
+                        onError: function (e) {
+                            send('error', e.data);
+                        }
+                    }
+                });
+            };
+
+            if (!videoId) {
+                send('error', 'missing-video-id');
+                return;
+            }
+
+            var tag = document.createElement('script');
+            tag.src = 'https://www.youtube.com/iframe_api';
+            tag.onerror = function () {
+                send('error', 'api-unavailable');
+            };
+            document.head.appendChild(tag);
+        })();
+    </script>
+</body>
+</html>
