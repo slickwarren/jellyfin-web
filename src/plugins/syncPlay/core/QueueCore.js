@@ -5,6 +5,7 @@
 
 import globalize from '../../../lib/globalize';
 import toast from '../../../components/toast/toast';
+import { getQueueToAdopt } from '../../../utils/syncPlayQueueFallback';
 import * as Helper from './Helper';
 
 /**
@@ -15,6 +16,7 @@ class QueueCore {
         this.manager = null;
         this.lastPlayQueueUpdate = null;
         this.playlist = [];
+        this.adoptedQueueGroupId = null;
     }
 
     /**
@@ -58,6 +60,10 @@ class QueueCore {
 
             switch (newPlayQueue.Reason) {
                 case 'NewPlaylist': {
+                    if (this.adoptLocalQueueIfMissing(newPlayQueue)) {
+                        break;
+                    }
+
                     if (!this.manager.isFollowingGroupPlayback()) {
                         this.manager.followGroupPlayback(apiClient).then(() => {
                             this.startPlayback(apiClient);
@@ -106,6 +112,36 @@ class QueueCore {
         }).catch((error) => {
             console.warn('SyncPlay updatePlayQueue:', error);
         });
+    }
+
+    /**
+     * Works around servers that start a group created during playback with an empty queue
+     * (see utils/syncPlayQueueFallback): sends the local queue to the group instead, at most once per group.
+     * @param {Object} newPlayQueue The play queue update.
+     * @returns {boolean} _true_ if the local queue was sent and the update needs no further handling.
+     */
+    adoptLocalQueueIfMissing(newPlayQueue) {
+        const groupInfo = this.manager.getGroupInfo();
+        if (!groupInfo || this.adoptedQueueGroupId === groupInfo.GroupId) {
+            return false;
+        }
+
+        const playerWrapper = this.manager.getPlayerWrapper();
+        const request = getQueueToAdopt({
+            playQueueUpdate: newPlayQueue,
+            groupInfo,
+            localPlayback: playerWrapper.getLocalPlaybackState ? playerWrapper.getLocalPlaybackState() : null
+        });
+        if (!request) {
+            return false;
+        }
+
+        this.adoptedQueueGroupId = groupInfo.GroupId;
+        console.warn('SyncPlay adoptLocalQueueIfMissing: group started with an empty queue during playback, sending the local queue.', request);
+        this.manager.getController().play(request).catch((error) => {
+            console.error('SyncPlay adoptLocalQueueIfMissing: failed to send the local queue.', error);
+        });
+        return true;
     }
 
     /**

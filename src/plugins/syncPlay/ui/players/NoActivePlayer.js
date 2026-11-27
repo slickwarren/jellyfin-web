@@ -243,6 +243,26 @@ class NoActivePlayer extends SyncPlay.Players.GenericPlayer {
     }
 
     /**
+     * Gets what the local player is playing, from the queue saved before SyncPlay took it over.
+     * Used by QueueCore's empty-queue workaround (see utils/syncPlayQueueFallback).
+     * @returns {Object|null} ids, startIndex and positionTicks, or null when nothing is loaded locally.
+     */
+    getLocalPlaybackState() {
+        const queueManager = playbackManager._localPlayQueueManager;
+        const player = playbackManager.getCurrentPlayer();
+        if (!queueManager || !player || !playbackManager.isPlaying(player)) {
+            return null;
+        }
+
+        const playlist = queueManager.getPlaylist();
+        return {
+            ids: playlist.map(item => item.Id),
+            startIndex: queueManager.getCurrentPlaylistIndex(),
+            positionTicks: (playbackManager.currentTime(player) || 0) * SyncPlay.Helper.TicksPerMillisecond
+        };
+    }
+
+    /**
      * Overrides PlaybackManager's setCurrentPlaylistItem method.
      */
     setCurrentPlaylistItemRequest(playlistItemId) {
